@@ -78,10 +78,16 @@ export default function SortPanel() {
     initModel();
   }, []);
 
-  // Cleanup timer on unmount
+  const [ecoMode, setEcoMode] = useState(true); // Smooth Anti-Lag Mode (15-20 FPS, 480x360)
+
+  // Cleanup timer and camera tracks on unmount
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      if (videoRef.current && videoRef.current.srcObject) {
+        const stream = videoRef.current.srcObject;
+        stream.getTracks().forEach((track) => track.stop());
+      }
     };
   }, []);
 
@@ -96,17 +102,41 @@ export default function SortPanel() {
     }
   }
 
-  async function turnOnCamera() {
-    if (streamOn) return;
+  async function turnOnCamera(preferEco = ecoMode) {
+    if (streamOn && !videoRef.current?.paused) return;
+
+    // Stop previous stream if active
+    if (videoRef.current && videoRef.current.srcObject) {
+      const oldStream = videoRef.current.srcObject;
+      oldStream.getTracks().forEach((track) => track.stop());
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        },
-      });
-      videoRef.current.srcObject = stream;
+      // Anti-lag constraints: cap resolution to 480x360 and frameRate to 15-20 FPS
+      // Prevents low-end CPU/GPU overload and thermal throttling
+      const constraints = preferEco
+        ? {
+            video: {
+              facingMode: 'environment',
+              width: { ideal: 480, max: 640 },
+              height: { ideal: 360, max: 480 },
+              frameRate: { ideal: 15, max: 20 },
+            },
+          }
+        : {
+            video: {
+              facingMode: 'environment',
+              width: { ideal: 640, max: 1280 },
+              height: { ideal: 480, max: 720 },
+              frameRate: { ideal: 24, max: 30 },
+            },
+          };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
       setStreamOn(true);
       setIsFrozen(false);
       setFrozenImage(null);
@@ -116,6 +146,23 @@ export default function SortPanel() {
     } catch {
       setStatus('Camera access was blocked or unavailable — use the tap list instead.');
     }
+  }
+
+  function turnOffCamera() {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject;
+      stream.getTracks().forEach((track) => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    setStreamOn(false);
+    setIsFrozen(false);
+    setFrozenImage(null);
+    setCountdown(null);
+    setStatus('Camera turned off.');
   }
 
   // ── Start 3-2-1 Countdown before capturing ─────────────────────────────────
@@ -139,7 +186,7 @@ export default function SortPanel() {
         setCountdown(null);
         captureAndDetect();
       }
-    }, 850);
+    }, 800);
   }
 
   function cancelCountdown() {
@@ -162,26 +209,31 @@ export default function SortPanel() {
 
     // 1. Shutter flash effect
     setFlash(true);
-    setTimeout(() => setFlash(false), 220);
+    setTimeout(() => setFlash(false), 200);
 
-    // 2. Capture static snapshot onto canvas with contrast auto-enhancement
-    const targetW = 400;
-    const targetH = 300;
+    // 2. Capture static snapshot onto compact canvas (360x270) for ultra-fast, zero-lag inference
+    const targetW = 360;
+    const targetH = 270;
     canvas.width  = targetW;
     canvas.height = targetH;
     const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
     
-    // Auto-contrast boost for sharper object edges under indoor lighting
-    ctx.filter = 'contrast(1.12) brightness(1.03)';
+    // Auto-contrast boost for sharper object edges
+    ctx.filter = 'contrast(1.10) brightness(1.02)';
     ctx.drawImage(video, 0, 0, targetW, targetH);
     ctx.filter = 'none';
 
-    // 3. Freeze the view by saving the static image data URL
-    const snapshotUrl = canvas.toDataURL('image/jpeg', 0.90);
+    // 3. Immediately pause video playback: frees 100% video decoding CPU while reviewing result!
+    try {
+      video.pause();
+    } catch {}
+
+    // 4. Freeze the view by saving the static image data URL
+    const snapshotUrl = canvas.toDataURL('image/jpeg', 0.85);
     setFrozenImage(snapshotUrl);
     setIsFrozen(true);
 
-    // 4. Run AI detection on the static snapshot
+    // 5. Run AI detection on the lightweight static snapshot
     setScanning(true);
     setStatus('📸 Photo captured! Analyzing static image…');
 
@@ -241,6 +293,11 @@ export default function SortPanel() {
     setIsFrozen(false);
     setFrozenImage(null);
     setResult(null);
+
+    // Resume video playback smoothly
+    if (videoRef.current && videoRef.current.paused) {
+      videoRef.current.play().catch(() => {});
+    }
     setStatus('Camera live — point at an item and tap "Scan item".');
   }
 
@@ -275,20 +332,26 @@ export default function SortPanel() {
           {/* Shutter Flash Animation */}
           {flash && <div className="cam-flash-overlay" />}
 
+          {/* Persistent Video Element (Never unmounted to avoid garbage collection stutter) */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              display: streamOn && !isFrozen ? 'block' : 'none',
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+            }}
+          />
+
           {/* Static Freeze Frame (shown after capture) */}
-          {isFrozen && frozenImage ? (
+          {isFrozen && frozenImage && (
             <>
               <img src={frozenImage} alt="Static Capture" className="cam-frozen-img" />
-              <div className="cam-frozen-badge">📸 Static Capture</div>
+              <div className="cam-frozen-badge">📸 Static Capture (Zero CPU Lag)</div>
             </>
-          ) : (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{ display: streamOn ? 'block' : 'none' }}
-            />
           )}
 
           {/* Targeting Reticle Frame (helps user center the item for higher accuracy) */}
@@ -330,10 +393,54 @@ export default function SortPanel() {
         {/* Hidden Canvas for Image Processing */}
         <canvas ref={canvasRef} style={{ display: 'none' }} />
 
+        {/* ── Camera Performance Bar ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0.5rem 0', fontSize: '0.78rem', color: '#94a3b8' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span>⚡ Mode:</span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = !ecoMode;
+                setEcoMode(next);
+                if (streamOn) turnOnCamera(next);
+              }}
+              style={{
+                background: ecoMode ? '#065f46' : '#1e293b',
+                color: ecoMode ? '#34d399' : '#94a3b8',
+                border: '1px solid ' + (ecoMode ? '#059669' : '#475569'),
+                padding: '0.2rem 0.5rem',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '0.75rem',
+              }}
+              title="Toggle between low-CPU Smooth Mode (15 FPS) and Standard HD Mode"
+            >
+              {ecoMode ? '🛡️ Smooth / Anti-Lag (15 FPS)' : '🎥 Standard HD (30 FPS)'}
+            </button>
+          </div>
+          {streamOn && (
+            <button
+              type="button"
+              onClick={turnOffCamera}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#ef4444',
+                cursor: 'pointer',
+                fontSize: '0.78rem',
+                textDecoration: 'underline',
+              }}
+            >
+              Turn off camera
+            </button>
+          )}
+        </div>
+
         {/* ── Camera Controls ── */}
         <div className="cam-controls">
           {!streamOn ? (
-            <button className="btn btn-primary" onClick={turnOnCamera}>
+            <button className="btn btn-primary" onClick={() => turnOnCamera(ecoMode)}>
               Turn on camera
             </button>
           ) : isFrozen ? (
