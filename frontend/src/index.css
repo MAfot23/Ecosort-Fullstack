@@ -318,3 +318,174 @@ main { max-width: 920px; margin: 0 auto; padding: 24px 20px 60px; }
   .admin-form-row { grid-template-columns: 1fr; }
   .admin-stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── 3-2-1 Countdown & Static Freeze Frame ──────────────────────────────── */
+.cam-frozen-img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  border-radius: var(--radius);
+}
+
+.cam-frozen-badge {
+  position: absolute; top: 12px; right: 12px;
+  background: rgba(14, 22, 16, 0.85); color: #E5B04D;
+  border: 1px solid rgba(229, 176, 77, 0.4);
+  backdrop-filter: blur(4px);
+  padding: 4px 10px; border-radius: 999px;
+  font-size: 0.76rem; font-weight: 600;
+  display: flex; align-items: center; gap: 5px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  z-index: 5;
+}
+
+.cam-countdown-overlay {
+  position: absolute; inset: 0;
+  background: rgba(10, 16, 12, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 6; color: #fff;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.countdown-circle {
+  width: 90px; height: 90px;
+  border-radius: 50%;
+  border: 4px solid var(--accent);
+  background: rgba(20, 30, 22, 0.8);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 25px rgba(201, 138, 21, 0.6);
+  animation: popScale 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.countdown-num {
+  font-family: 'Fraunces', serif;
+  font-size: 3.2rem; font-weight: 700;
+  color: var(--accent); line-height: 1;
+}
+
+.countdown-text {
+  margin-top: 12px; font-size: 0.9rem;
+  font-weight: 500; color: #EBEFE9;
+  letter-spacing: 0.02em;
+}
+
+.cam-flash-overlay {
+  position: absolute; inset: 0;
+  background: #ffffff;
+  z-index: 7;
+  opacity: 0.85;
+  pointer-events: none;
+  animation: shutterFlash 0.25s ease-out forwards;
+}
+
+@keyframes popScale {
+  0%   { transform: scale(0.5); opacity: 0; }
+  60%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes shutterFlash {
+  0%   { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Weekly Disposal Tracker ("Ilang beses nagtapon") ───────────────────── */
+.weekly-card {
+  margin-top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.weekly-head {
+  display: flex; justify-content: space-between;
+  align-items: flex-start; gap: 12px; margin-bottom: 14px;
+}
+
+.weekly-total-badge {
+  text-align: right; background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 6px 12px; border-radius: 8px;
+}
+
+.weekly-num {
+  display: block;
+  font-family: 'Fraunces', serif;
+  font-size: 1.5rem; font-weight: 700;
+  color: var(--accent); line-height: 1;
+}
+
+.weekly-sub {
+  font-size: 0.72rem; color: var(--ink-soft);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+
+.weekly-bar-chart {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  align-items: flex-end;
+  height: 110px;
+  padding: 10px 8px 6px;
+  background: var(--surface-2);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.day-col {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: flex-end;
+  height: 100%;
+}
+
+.bar-track {
+  width: 100%; max-width: 22px;
+  flex: 1; background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  display: flex; align-items: flex-end;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.bar-fill {
+  width: 100%; background: var(--accent);
+  border-radius: 4px;
+  transition: height 0.5s ease-out;
+  min-height: 3px;
+}
+
+.day-col.today .bar-fill {
+  background: var(--organic);
+}
+
+.day-col.today .day-label {
+  color: var(--organic); font-weight: 700;
+}
+
+.day-count {
+  font-size: 0.74rem; font-weight: 600;
+  color: var(--ink); margin-bottom: 2px;
+}
+
+.day-label {
+  font-size: 0.7rem; color: var(--ink-soft);
+}
+
+.weekly-bin-chips {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;
+}
+
+.bin-pill {
+  font-size: 0.75rem; font-weight: 600;
+  padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.bin-pill.organic    { background: var(--organic-bg);    color: var(--organic);    border-color: var(--organic); }
+.bin-pill.recyclable { background: var(--recyclable-bg); color: var(--recyclable); border-color: var(--recyclable); }
+.bin-pill.residual   { background: var(--residual-bg);   color: var(--residual);   border-color: var(--residual); }
+

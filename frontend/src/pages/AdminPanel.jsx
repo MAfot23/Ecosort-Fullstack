@@ -26,10 +26,11 @@ function Section({ title, children }) {
 
 // ── Main admin panel ──────────────────────────────────────────────────────────
 export default function AdminPanel() {
-  const [tab,       setTab]       = useState('stats');
-  const [stats,     setStats]     = useState(null);
-  const [users,     setUsers]     = useState([]);
-  const [logs,      setLogs]      = useState({ data: [], current_page: 1, last_page: 1 });
+  const [tab,          setTab]          = useState('stats');
+  const [stats,        setStats]        = useState(null);
+  const [weeklyStats,  setWeeklyStats]  = useState(null);
+  const [users,        setUsers]        = useState([]);
+  const [logs,         setLogs]         = useState({ data: [], current_page: 1, last_page: 1 });
   const [items,     setItems]     = useState([]);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
@@ -57,9 +58,18 @@ export default function AdminPanel() {
 
   async function fetchStats() {
     setLoading(true);
-    try { setStats((await api.get('/admin/stats')).data); }
-    catch { setError('Could not load stats.'); }
-    finally { setLoading(false); }
+    try {
+      const [sRes, wRes] = await Promise.all([
+        api.get('/admin/stats'),
+        api.get('/scans/weekly'),
+      ]);
+      setStats(sRes.data);
+      setWeeklyStats(wRes.data);
+    } catch {
+      setError('Could not load stats.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function fetchUsers() {
@@ -168,6 +178,64 @@ export default function AdminPanel() {
                 {Object.entries(stats.scans_by_bin).map(([bin, count]) => (
                   <StatCard key={bin} label={`${BIN_ICONS[bin] ?? ''} ${bin}`} value={Number(count).toLocaleString()} color={BIN_COLORS[bin]} />
                 ))}
+              </div>
+            </Section>
+          )}
+
+          {/* ── Weekly Disposal Process ("Ilang beses nagtapon") ── */}
+          {weeklyStats && (
+            <Section title="📅 Weekly Disposal Analytics (Ilang Beses Nagtapon)">
+              <div className="admin-stats-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: 14 }}>
+                <StatCard label="Disposals This Week" value={weeklyStats.this_week_total?.toLocaleString()} color="var(--accent)" sub="Current 7 days" />
+                <StatCard label="Disposals Last Week" value={weeklyStats.last_week_total?.toLocaleString()} sub="Previous 7 days" />
+                <StatCard
+                  label="Weekly Trend"
+                  value={
+                    weeklyStats.last_week_total > 0
+                      ? `${Math.round(((weeklyStats.this_week_total - weeklyStats.last_week_total) / weeklyStats.last_week_total) * 100)}%`
+                      : weeklyStats.this_week_total > 0 ? '+100%' : '0%'
+                  }
+                  color={weeklyStats.this_week_total >= weeklyStats.last_week_total ? 'var(--organic)' : 'var(--danger)'}
+                  sub="vs. last week"
+                />
+              </div>
+
+              {/* 7-Day Bar Chart */}
+              <div className="card" style={{ marginBottom: 14, padding: '16px 20px' }}>
+                <h4 style={{ margin: '0 0 10px', fontSize: '0.9rem', color: 'var(--ink-soft)' }}>Daily Disposal Activity (This Week)</h4>
+                <div className="weekly-bar-chart">
+                  {weeklyStats.daily?.map((d) => {
+                    const maxCount = Math.max(1, ...weeklyStats.daily.map(x => x.count));
+                    const fillPercent = d.count > 0 ? Math.max(15, (d.count / maxCount) * 100) : 0;
+                    return (
+                      <div key={d.day} className={`day-col ${d.is_today ? 'today' : ''}`} title={`${d.date}: ${d.count} disposals`}>
+                        <div className="bar-track">
+                          <div className="bar-fill" style={{ height: `${fillPercent}%` }} />
+                        </div>
+                        <span className="day-count">{d.count}</span>
+                        <span className="day-label">{d.day}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Past 4 Weeks History */}
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr><th>Week Period</th><th>Week #</th><th>Disposals Count</th></tr>
+                  </thead>
+                  <tbody>
+                    {weeklyStats.weekly_history?.map((w, idx) => (
+                      <tr key={idx}>
+                        <td><strong>{w.label}</strong></td>
+                        <td>Week {w.week_number}</td>
+                        <td><span className="badge badge-camera">{w.count} disposals</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </Section>
           )}

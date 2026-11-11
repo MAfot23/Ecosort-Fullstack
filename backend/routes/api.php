@@ -14,9 +14,10 @@ Route::post('/login',    [AuthController::class, 'login']);
 Route::get('/waste-items', [WasteItemController::class, 'index']);
 
 // Camera detection (logs scan; user_id nullable so works while unauthenticated too)
-Route::post('/detect',       [DetectController::class, 'store']);
-Route::post('/detect/manual',[DetectController::class, 'manual']);
-Route::get('/detect/count',  [DetectController::class, 'count']);
+Route::post('/detect',        [DetectController::class, 'store']);
+Route::post('/detect/manual', [DetectController::class, 'manual']);
+Route::get('/detect/count',   [DetectController::class, 'count']);
+Route::get('/scans/weekly',   [DetectController::class, 'weeklyStats']);
 
 // ── Requires a logged-in user (Bearer token from login/register) ──────────────
 Route::middleware('auth:sanctum')->group(function () {

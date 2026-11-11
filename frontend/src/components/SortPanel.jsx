@@ -8,25 +8,40 @@ const BIN_META = {
 };
 
 export default function SortPanel() {
-  const videoRef  = useRef(null);
-  const canvasRef = useRef(null);
+  const videoRef      = useRef(null);
+  const canvasRef     = useRef(null);
+  const timerRef      = useRef(null);
+
   const [model,       setModel]       = useState(null);
   const [modelFailed, setModelFailed] = useState(false);
   const [streamOn,    setStreamOn]    = useState(false);
-  const [scanning,    setScanning]    = useState(false);
   const [status,      setStatus]      = useState('Detection model: loading…');
   const [result,      setResult]      = useState(null); // { name, icon, bin, tip, confText }
   const [items,       setItems]       = useState([]);
   const [scanCount,   setScanCount]   = useState(null); // global counter
 
-  // Load the tap-list items from the Laravel API
+  // ── 3-2-1 Countdown & Static Freeze States ──────────────────────────────────
+  const [countdown,   setCountdown]   = useState(null); // null, 3, 2, 1
+  const [isFrozen,    setIsFrozen]    = useState(false);
+  const [frozenImage, setFrozenImage] = useState(null);
+  const [flash,       setFlash]       = useState(false);
+  const [scanning,    setScanning]    = useState(false);
+
+  // ── Weekly Disposal Tracker ("Ilang beses nagtapon") ────────────────────────
+  const [weeklyData,  setWeeklyData]  = useState(null);
+
+  // Load items, global scan count, and weekly stats from Laravel API
   useEffect(() => {
     api.get('/waste-items').then((res) => setItems(res.data)).catch(() => {});
-    // Fetch initial scan count
-    api.get('/detect/count').then((res) => setScanCount(res.data.scan_count)).catch(() => {});
+    fetchCountsAndWeekly();
   }, []);
 
-  // Load the TF.js model with WebGL GPU acceleration for fast inference
+  function fetchCountsAndWeekly() {
+    api.get('/detect/count').then((res) => setScanCount(res.data.scan_count)).catch(() => {});
+    api.get('/scans/weekly').then((res) => setWeeklyData(res.data)).catch(() => {});
+  }
+
+  // Load TF.js model with WebGL GPU acceleration
   useEffect(() => {
     if (typeof window.cocoSsd === 'undefined') {
       setModelFailed(true);
@@ -37,11 +52,9 @@ export default function SortPanel() {
     async function initModel() {
       try {
         if (window.tf) {
-          // Use WebGL GPU acceleration for 5x faster scanning
           await window.tf.setBackend('webgl').catch(() => window.tf.setBackend('cpu'));
           await window.tf.ready();
         }
-        // Load lightweight, ultra-fast MobileNet model
         const m = await window.cocoSsd.load({ base: 'lite_mobilenet_v2' });
         setModel(m);
         setStatus('Model ready. Turn on the camera to scan.');
@@ -54,21 +67,27 @@ export default function SortPanel() {
     initModel();
   }, []);
 
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
   async function showManualResult(item) {
     setResult({ name: item.name, icon: item.icon, bin: item.bin, tip: item.tip, confText: 'Selected manually' });
-    // Log the manual selection to the backend
     try {
       const res = await api.post('/detect/manual', { waste_item_id: item.id });
       if (res.data.scan_count != null) setScanCount(res.data.scan_count);
+      fetchCountsAndWeekly();
     } catch {
-      // non-fatal — counter will resync on next scan
+      // non-fatal
     }
   }
 
   async function turnOnCamera() {
     if (streamOn) return;
     try {
-      // Request an optimized resolution (640x480) for high FPS and ultra-fast inference
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment',
@@ -78,35 +97,80 @@ export default function SortPanel() {
       });
       videoRef.current.srcObject = stream;
       setStreamOn(true);
+      setIsFrozen(false);
+      setFrozenImage(null);
       if (!modelFailed) {
-        setStatus(model ? 'Model ready — tap "Scan item".' : 'Detection model: loading…');
+        setStatus(model ? 'Model ready — point at an item and tap "Scan item".' : 'Detection model: loading…');
       }
     } catch {
       setStatus('Camera access was blocked or unavailable — use the tap list instead.');
     }
   }
 
-  async function scanItem() {
-    if (!model || !streamOn || scanning) return;
+  // ── Start 3-2-1 Countdown before capturing ─────────────────────────────────
+  function startScanWithCountdown() {
+    if (!model || !streamOn || scanning || countdown !== null) return;
+
+    // Reset previous results and start 3-2-1 sequence
+    setResult(null);
+    let count = 3;
+    setCountdown(3);
+    setStatus('Hold item steady... 3');
+
+    timerRef.current = setInterval(() => {
+      count -= 1;
+      if (count > 0) {
+        setCountdown(count);
+        setStatus(`Hold item steady... ${count}`);
+      } else {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+        setCountdown(null);
+        captureAndDetect();
+      }
+    }, 850);
+  }
+
+  function cancelCountdown() {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setCountdown(null);
+    setStatus('Scan canceled. Tap "Scan item" when ready.');
+  }
+
+  // ── Snap Static Freeze Frame & Run AI Detection ────────────────────────────
+  async function captureAndDetect() {
+    const video  = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    // 1. Shutter flash effect
+    setFlash(true);
+    setTimeout(() => setFlash(false), 220);
+
+    // 2. Capture static snapshot onto canvas
+    const targetW = 400;
+    const targetH = 300;
+    canvas.width  = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, targetW, targetH);
+
+    // 3. Freeze the view by saving the static image data URL
+    const snapshotUrl = canvas.toDataURL('image/jpeg', 0.90);
+    setFrozenImage(snapshotUrl);
+    setIsFrozen(true);
+
+    // 4. Run AI detection on the static snapshot
     setScanning(true);
-    setStatus('⚡ Fast scanning…');
+    setStatus('📸 Photo captured! Analyzing static image…');
 
     try {
-      const video  = videoRef.current;
-      const canvas = canvasRef.current;
-
-      // Downscale to 400x300 for 5x to 8x faster AI inference without losing accuracy
-      const targetW = 400;
-      const targetH = 300;
-      canvas.width  = targetW;
-      canvas.height = targetH;
-      const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
-      ctx.drawImage(video, 0, 0, targetW, targetH);
-
-      // Fast inference: limit to top 3 predictions with minimum 30% confidence
       const preds = await model.detect(canvas, 3, 0.30);
       if (!preds || !preds.length) {
-        setStatus('Nothing recognizable in frame — try moving closer, or pick from the tap list.');
+        setStatus('Nothing recognizable in the photo — try scanning closer or from another angle.');
         setScanning(false);
         return;
       }
@@ -115,9 +179,14 @@ export default function SortPanel() {
       const top = preds[0];
 
       // Server lookup
-      const res = await api.post('/detect', { coco_class: top.class, confidence: top.score, method: 'camera' });
+      const res = await api.post('/detect', {
+        coco_class: top.class,
+        confidence: top.score,
+        method: 'camera',
+      });
 
       if (res.data.scan_count != null) setScanCount(res.data.scan_count);
+      fetchCountsAndWeekly();
 
       if (!res.data.matched) {
         setStatus(res.data.message);
@@ -133,13 +202,26 @@ export default function SortPanel() {
         tip:      item.tip,
         confText: `Detected as "${top.class}" — ${Math.round(top.score * 100)}% confidence`,
       });
-      setStatus('Ready — point at an item and tap "Scan item".');
+      setStatus('Item identified! Tap "Scan another item" to unfreeze camera.');
     } catch {
-      setStatus('Scan failed — try again, or use the tap list.');
+      setStatus('Scan analysis failed — try again or use the tap list.');
     } finally {
       setScanning(false);
     }
   }
+
+  // ── Unfreeze camera and return to live feed ────────────────────────────────
+  function unfreezeAndRescan() {
+    setIsFrozen(false);
+    setFrozenImage(null);
+    setResult(null);
+    setStatus('Camera live — point at an item and tap "Scan item".');
+  }
+
+  // Calculate highest count for bar chart scaling
+  const maxDailyCount = weeklyData?.daily
+    ? Math.max(1, ...weeklyData.daily.map((d) => d.count))
+    : 1;
 
   return (
     <div className="grid-2">
@@ -155,22 +237,94 @@ export default function SortPanel() {
           </div>
         )}
 
+        {/* ── Camera Viewfinder with 3-2-1 Countdown & Static Freeze Frame ── */}
         <div className="cam-frame">
-          <video ref={videoRef} autoPlay playsInline muted style={{ display: streamOn ? 'block' : 'none' }} />
-          {!streamOn && <div className="cam-placeholder">Camera is off.<br />Turn it on, then point it at an item.</div>}
+          {/* Shutter Flash Animation */}
+          {flash && <div className="cam-flash-overlay" />}
+
+          {/* Static Freeze Frame (shown after capture) */}
+          {isFrozen && frozenImage ? (
+            <>
+              <img src={frozenImage} alt="Static Capture" className="cam-frozen-img" />
+              <div className="cam-frozen-badge">📸 Static Capture</div>
+            </>
+          ) : (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ display: streamOn ? 'block' : 'none' }}
+            />
+          )}
+
+          {/* 3-2-1 Countdown Overlay */}
+          {countdown !== null && (
+            <div className="cam-countdown-overlay">
+              <div className="countdown-circle">
+                <span className="countdown-num">{countdown}</span>
+              </div>
+              <div className="countdown-text">Hold item steady…</div>
+              <button
+                type="button"
+                className="btn btn-link"
+                style={{ color: '#fff', marginTop: 10, fontSize: '0.82rem' }}
+                onClick={cancelCountdown}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {!streamOn && !isFrozen && (
+            <div className="cam-placeholder">
+              Camera is off.<br />Turn it on, then point it at an item.
+            </div>
+          )}
         </div>
+
+        {/* Hidden Canvas for Image Processing */}
         <canvas ref={canvasRef} style={{ display: 'none' }} />
 
+        {/* ── Camera Controls ── */}
         <div className="cam-controls">
-          <button className="btn btn-primary" onClick={turnOnCamera} disabled={streamOn}>
-            {streamOn ? 'Camera on' : 'Turn on camera'}
-          </button>
-          <button className="btn" onClick={scanItem} disabled={!model || !streamOn || scanning}>
-            {scanning ? '⚡ Scanning…' : 'Scan item'}
-          </button>
+          {!streamOn ? (
+            <button className="btn btn-primary" onClick={turnOnCamera}>
+              Turn on camera
+            </button>
+          ) : isFrozen ? (
+            <button className="btn btn-primary" onClick={unfreezeAndRescan}>
+              🔄 Scan another item
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={startScanWithCountdown}
+              disabled={!model || scanning || countdown !== null}
+            >
+              {countdown !== null
+                ? `Capturing in ${countdown}…`
+                : scanning
+                ? '⚡ Analyzing…'
+                : '📸 Scan item (3-2-1)'}
+            </button>
+          )}
+
+          {streamOn && !isFrozen && (
+            <button
+              className="btn"
+              onClick={captureAndDetect}
+              disabled={!model || scanning || countdown !== null}
+              title="Skip countdown and snap immediately"
+            >
+              Instant Snap
+            </button>
+          )}
         </div>
+
         <div className="status-line">{status}</div>
 
+        {/* ── Result Card ── */}
         {result && (
           <div className="result-card card show">
             <div className="result-head">
@@ -187,8 +341,48 @@ export default function SortPanel() {
             </p>
           </div>
         )}
+
+        {/* ── Weekly Disposal Tracker ("Ilang beses nagtapon") ── */}
+        {weeklyData && (
+          <div className="card weekly-card">
+            <div className="weekly-head">
+              <div>
+                <h3 className="section-title">📅 Weekly Disposal Tracker</h3>
+                <p className="helper">Ilang beses nagtapon ngayong linggo</p>
+              </div>
+              <div className="weekly-total-badge">
+                <span className="weekly-num">{weeklyData.this_week_total}</span>
+                <span className="weekly-sub">disposals this week</span>
+              </div>
+            </div>
+
+            {/* 7-Day Mini Bar Chart */}
+            <div className="weekly-bar-chart">
+              {weeklyData.daily?.map((d) => {
+                const fillPercent = d.count > 0 ? Math.max(15, (d.count / maxDailyCount) * 100) : 0;
+                return (
+                  <div key={d.day} className={`day-col ${d.is_today ? 'today' : ''}`} title={`${d.date}: ${d.count} disposals`}>
+                    <div className="bar-track">
+                      <div className="bar-fill" style={{ height: `${fillPercent}%` }} />
+                    </div>
+                    <span className="day-count">{d.count}</span>
+                    <span className="day-label">{d.day}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Weekly Bin Breakdown */}
+            <div className="weekly-bin-chips">
+              <span className="bin-pill organic">🍃 {weeklyData.by_bin_this_week?.organic || 0} Organic</span>
+              <span className="bin-pill recyclable">♻️ {weeklyData.by_bin_this_week?.recyclable || 0} Recyclable</span>
+              <span className="bin-pill residual">🗑️ {weeklyData.by_bin_this_week?.residual || 0} Residual</span>
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* ── Right Column: Info & Tap List ── */}
       <div>
         <div className="card">
           <h2 className="section-title">The three bins</h2>
