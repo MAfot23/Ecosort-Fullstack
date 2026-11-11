@@ -19,6 +19,8 @@ export default function SortPanel() {
   const [result,      setResult]      = useState(null); // { name, icon, bin, tip, confText }
   const [items,       setItems]       = useState([]);
   const [scanCount,   setScanCount]   = useState(null); // global counter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterBin,   setFilterBin]   = useState('all');
 
   // ── 3-2-1 Countdown & Static Freeze States ──────────────────────────────────
   const [countdown,   setCountdown]   = useState(null); // null, 3, 2, 1
@@ -247,6 +249,13 @@ export default function SortPanel() {
     ? Math.max(1, ...weeklyData.daily.map((d) => d.count))
     : 1;
 
+  // Filter items by search query and bin category
+  const filteredItems = items.filter((item) => {
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesBin = filterBin === 'all' || item.bin === filterBin;
+    return matchesSearch && matchesBin;
+  });
+
   return (
     <div className="grid-2">
       <div>
@@ -429,14 +438,67 @@ export default function SortPanel() {
         </div>
 
         <div className="card" style={{ marginTop: 16 }}>
-          <h2 className="section-title">Not near a camera?</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+            <h2 className="section-title" style={{ margin: 0 }}>Not near a camera?</h2>
+            <span style={{ fontSize: '0.78rem', color: 'var(--ink-soft)' }}>{filteredItems.length} items</span>
+          </div>
           <p className="helper">Tap an item to see where it goes.</p>
+
+          {/* Search bar */}
+          <div style={{ marginBottom: 10 }}>
+            <input
+              type="text"
+              placeholder="🔍 Search items e.g. thermos, tissue, sachet, can…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="tap-search-input"
+            />
+          </div>
+
+          {/* Category filter pills */}
+          <div className="tap-filter-tabs">
+            <button
+              type="button"
+              className={`tap-filter-btn ${filterBin === 'all' ? 'active' : ''}`}
+              onClick={() => setFilterBin('all')}
+            >
+              All ({items.length})
+            </button>
+            <button
+              type="button"
+              className={`tap-filter-btn organic ${filterBin === 'organic' ? 'active' : ''}`}
+              onClick={() => setFilterBin('organic')}
+            >
+              🍃 Organic
+            </button>
+            <button
+              type="button"
+              className={`tap-filter-btn recyclable ${filterBin === 'recyclable' ? 'active' : ''}`}
+              onClick={() => setFilterBin('recyclable')}
+            >
+              ♻️ Recyclable
+            </button>
+            <button
+              type="button"
+              className={`tap-filter-btn residual ${filterBin === 'residual' ? 'active' : ''}`}
+              onClick={() => setFilterBin('residual')}
+            >
+              🗑️ Residual
+            </button>
+          </div>
+
+          {/* Filtered Chips */}
           <div className="chips">
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <button key={item.id} className="chip" onClick={() => showManualResult(item)}>
                 {item.icon} {item.name}
               </button>
             ))}
+            {filteredItems.length === 0 && (
+              <div style={{ padding: '12px 0', fontSize: '0.85rem', color: 'var(--ink-soft)' }}>
+                No items found matching "{searchQuery}".
+              </div>
+            )}
           </div>
         </div>
       </div>

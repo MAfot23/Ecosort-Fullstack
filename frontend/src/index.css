@@ -157,12 +157,59 @@ main { max-width: 920px; margin: 0 auto; padding: 24px 20px 60px; }
 .result-conf { font-size: 0.78rem; color: var(--ink-soft); margin-top: 2px; }
 .result-tip { margin-top: 10px; font-size: 0.88rem; }
 
-.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; max-height: 280px; overflow-y: auto; padding-right: 4px; }
 .chip {
   border: 1px solid var(--border); background: var(--surface-2);
   padding: 7px 12px; border-radius: 999px; font-size: 0.82rem; color: var(--ink);
 }
 .chip:hover { border-color: var(--ink-soft); }
+
+/* ── Tap-to-Sort Search & Category Filters ──────────────────────────────── */
+.tap-search-input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+}
+.tap-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(201, 138, 21, 0.2);
+}
+
+.tap-filter-tabs {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.tap-filter-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font-size: 0.74rem; font-weight: 500;
+  padding: 4px 10px; border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.tap-filter-btn:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+.tap-filter-btn.active {
+  background: var(--accent); color: #1E1704; border-color: var(--accent); font-weight: 600;
+}
+.tap-filter-btn.organic.active {
+  background: var(--organic); color: #fff; border-color: var(--organic);
+}
+.tap-filter-btn.recyclable.active {
+  background: var(--recyclable); color: #fff; border-color: var(--recyclable);
+}
+.tap-filter-btn.residual.active {
+  background: var(--residual); color: #fff; border-color: var(--residual);
+}
 
 /* Game panel */
 .game-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; flex-wrap: wrap; gap: 6px;}
