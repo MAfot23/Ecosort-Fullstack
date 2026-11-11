@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+// Automatically adapt to localhost or local Wi-Fi IP (e.g. 192.168.x.x) when accessed from a mobile phone
+const defaultApiHost = typeof window !== 'undefined' && window.location.hostname
+  ? `http://${window.location.hostname}:8000/api`
+  : 'http://localhost:8000/api';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
+  baseURL: import.meta.env.VITE_API_URL || defaultApiHost,
 });
 
 // Attach the saved auth token (if any) to every request
