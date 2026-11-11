@@ -41,7 +41,7 @@ export default function SortPanel() {
     api.get('/scans/weekly').then((res) => setWeeklyData(res.data)).catch(() => {});
   }
 
-  // Load TF.js model with WebGL GPU acceleration
+  // Load TF.js model with WebGL GPU acceleration & warmup
   useEffect(() => {
     if (typeof window.cocoSsd === 'undefined') {
       setModelFailed(true);
@@ -52,10 +52,19 @@ export default function SortPanel() {
     async function initModel() {
       try {
         if (window.tf) {
+          // Hardware acceleration flags (half-precision float textures for 2x faster GPU computation)
+          window.tf.env().set('WEBGL_PACK', true);
+          window.tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
           await window.tf.setBackend('webgl').catch(() => window.tf.setBackend('cpu'));
           await window.tf.ready();
         }
         const m = await window.cocoSsd.load({ base: 'lite_mobilenet_v2' });
+        
+        // Warmup inference to pre-compile WebGL shaders for instant 1st scan
+        const dummy = document.createElement('canvas');
+        dummy.width = 16; dummy.height = 16;
+        m.detect(dummy, 1, 0.5).catch(() => {});
+
         setModel(m);
         setStatus('Model ready. Turn on the camera to scan.');
       } catch {
@@ -140,6 +149,9 @@ export default function SortPanel() {
     setStatus('Scan canceled. Tap "Scan item" when ready.');
   }
 
+  // Non-waste noise classes to suppress (so holding an item with your hand doesn't detect 'person')
+  const IGNORED_CLASSES = new Set(['person', 'chair', 'couch', 'bed', 'dining table', 'tv']);
+
   // ── Snap Static Freeze Frame & Run AI Detection ────────────────────────────
   async function captureAndDetect() {
     const video  = videoRef.current;
@@ -150,13 +162,17 @@ export default function SortPanel() {
     setFlash(true);
     setTimeout(() => setFlash(false), 220);
 
-    // 2. Capture static snapshot onto canvas
+    // 2. Capture static snapshot onto canvas with contrast auto-enhancement
     const targetW = 400;
     const targetH = 300;
     canvas.width  = targetW;
     canvas.height = targetH;
     const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+    
+    // Auto-contrast boost for sharper object edges under indoor lighting
+    ctx.filter = 'contrast(1.12) brightness(1.03)';
     ctx.drawImage(video, 0, 0, targetW, targetH);
+    ctx.filter = 'none';
 
     // 3. Freeze the view by saving the static image data URL
     const snapshotUrl = canvas.toDataURL('image/jpeg', 0.90);
@@ -168,21 +184,29 @@ export default function SortPanel() {
     setStatus('📸 Photo captured! Analyzing static image…');
 
     try {
-      const preds = await model.detect(canvas, 3, 0.30);
+      const preds = await model.detect(canvas, 4, 0.25);
       if (!preds || !preds.length) {
-        setStatus('Nothing recognizable in the photo — try scanning closer or from another angle.');
+        setStatus('Nothing recognizable in the photo — try centering the item inside the box.');
         setScanning(false);
         return;
       }
 
-      preds.sort((a, b) => b.score - a.score);
-      const top = preds[0];
+      // Filter out non-waste items like 'person' (user's hand/body)
+      const validPreds = preds.filter((p) => !IGNORED_CLASSES.has(p.class));
+      const candidates = (validPreds.length > 0 ? validPreds : preds).map((p) => ({
+        class: p.class,
+        confidence: p.score,
+      }));
 
-      // Server lookup
+      candidates.sort((a, b) => b.confidence - a.confidence);
+      const top = candidates[0];
+
+      // Server lookup with multi-candidate matching
       const res = await api.post('/detect', {
         coco_class: top.class,
-        confidence: top.score,
+        confidence: top.confidence,
         method: 'camera',
+        candidates: candidates,
       });
 
       if (res.data.scan_count != null) setScanCount(res.data.scan_count);
@@ -200,7 +224,7 @@ export default function SortPanel() {
         icon:     item.icon,
         bin:      item.bin,
         tip:      item.tip,
-        confText: `Detected as "${top.class}" — ${Math.round(top.score * 100)}% confidence`,
+        confText: `Detected as "${res.data.detected_class || top.class}" — ${Math.round((res.data.confidence || top.confidence) * 100)}% confidence`,
       });
       setStatus('Item identified! Tap "Scan another item" to unfreeze camera.');
     } catch {
@@ -256,6 +280,17 @@ export default function SortPanel() {
               muted
               style={{ display: streamOn ? 'block' : 'none' }}
             />
+          )}
+
+          {/* Targeting Reticle Frame (helps user center the item for higher accuracy) */}
+          {streamOn && !isFrozen && countdown === null && (
+            <div className="cam-reticle">
+              <div className="reticle-corner tl" />
+              <div className="reticle-corner tr" />
+              <div className="reticle-corner bl" />
+              <div className="reticle-corner br" />
+              <div className="reticle-hint">Center item here</div>
+            </div>
           )}
 
           {/* 3-2-1 Countdown Overlay */}

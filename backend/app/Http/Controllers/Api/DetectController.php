@@ -22,41 +22,66 @@ class DetectController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'coco_class' => ['required', 'string'],
-            'confidence' => ['nullable', 'numeric', 'min:0', 'max:1'],
-            'method'     => ['nullable', 'in:camera,manual'],
+            'coco_class'  => ['required', 'string'],
+            'confidence'  => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'method'      => ['nullable', 'in:camera,manual'],
+            'candidates'  => ['nullable', 'array'],
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $item   = WasteItem::where('coco_class', $request->coco_class)->first();
         $method = $request->input('method', 'camera');
+        $primaryClass = $request->input('coco_class');
+        $candidates = $request->input('candidates', []);
 
-        // Log every scan attempt
+        // 1. Try finding match for the primary detected class
+        $item = WasteItem::where('coco_class', $primaryClass)->first();
+        $matchedClass = $primaryClass;
+        $matchedConfidence = $request->confidence;
+
+        // 2. Multi-Candidate fallback: if primary wasn't in waste guide, check other detected candidates
+        if (! $item && ! empty($candidates)) {
+            foreach ($candidates as $cand) {
+                $candClass = is_array($cand) ? ($cand['class'] ?? '') : (string) $cand;
+                $candConf  = is_array($cand) ? ($cand['confidence'] ?? null) : null;
+
+                if (! empty($candClass)) {
+                    $candidateItem = WasteItem::where('coco_class', $candClass)->first();
+                    if ($candidateItem) {
+                        $item = $candidateItem;
+                        $matchedClass = $candClass;
+                        $matchedConfidence = $candConf ?? $matchedConfidence;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Log the scan attempt
         ScanLog::create([
-            'user_id'      => $request->user()?->id,
-            'coco_class'   => $request->coco_class,
-            'confidence'   => $request->confidence,
-            'matched'      => (bool) $item,
-            'waste_item_id'=> $item?->id,
-            'method'       => $method,
+            'user_id'       => $request->user()?->id,
+            'coco_class'    => $matchedClass,
+            'confidence'    => $matchedConfidence,
+            'matched'       => (bool) $item,
+            'waste_item_id' => $item?->id,
+            'method'        => $method,
         ]);
 
         if (! $item) {
             return response()->json([
                 'matched'        => false,
-                'detected_class' => $request->coco_class,
+                'detected_class' => $primaryClass,
                 'scan_count'     => ScanLog::count(),
-                'message'        => 'Detected "'.$request->coco_class.'" — not in the waste guide, use your judgement or the tap list.',
+                'message'        => 'Detected "'.$primaryClass.'" — not in the waste guide, use your judgement or the tap list.',
             ]);
         }
 
         return response()->json([
             'matched'        => true,
-            'detected_class' => $request->coco_class,
-            'confidence'     => $request->confidence,
+            'detected_class' => $matchedClass,
+            'confidence'     => $matchedConfidence,
             'item'           => $item,
             'scan_count'     => ScanLog::count(),
         ]);
