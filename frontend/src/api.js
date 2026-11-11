@@ -1,9 +1,16 @@
 import axios from 'axios';
 
-// Automatically adapt to localhost or local Wi-Fi IP (e.g. 192.168.x.x) when accessed from a mobile phone
-const defaultApiHost = typeof window !== 'undefined' && window.location.hostname
-  ? `http://${window.location.hostname}:8000/api`
-  : 'http://localhost:8000/api';
+// Automatically adapt baseURL:
+// - Local Vite Dev (port 5173): routes to http://<hostname>:8000/api (works on PC and phone)
+// - Production Cloud Deployment: routes to '/api' on the same domain (no CORS needed)
+let defaultApiHost = '/api';
+if (typeof window !== 'undefined' && window.location) {
+  const host = window.location.hostname;
+  const port = window.location.port;
+  if (port === '5173' || port === '5174') {
+    defaultApiHost = `http://${host}:8000/api`;
+  }
+}
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || defaultApiHost,
