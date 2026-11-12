@@ -102,14 +102,7 @@ export default function Login() {
             >
               admin@ecosort.local
             </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ padding: '0.35rem 0.65rem', fontSize: '0.78rem' }}
-              onClick={() => fillCredentials('admin@lingkodhub.gov.ph', 'admin1234')}
-            >
-              admin@lingkodhub.gov.ph
-            </button>
+            
           </div>
           <div style={{ color: '#64748b', marginTop: '0.4rem', fontSize: '0.75rem' }}>
             Password for both: <strong>admin1234</strong>
