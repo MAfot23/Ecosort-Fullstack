@@ -4,8 +4,8 @@ return [
     'paths' => ['api/*', 'sanctum/csrf-cookie'],
     'allowed_methods' => ['*'],
 
-    // Vite's default dev server port — change/add if yours differs
-    'allowed_origins' => ['http://localhost:5173'],
+    // Allow all origins in production (Render all-in-one = same domain, no CORS needed anyway)
+    'allowed_origins' => ['*'],
 
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
